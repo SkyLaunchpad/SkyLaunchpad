@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "SkyLaunchpad",
+      "hasCanvas": false,
+      "bodyTextLen": 454,
+      "bodyTextHash": "057429713c5f9e7021b1955b4f492b0b31df7555c6ad8167c4e25c3a165a33fa",
+      "bodyTextPrefix": "Sky / Create a token Launches PLP Analytics Theme Wallet… Launch",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "SkyLaunchpad",
+      "hasCanvas": false,
+      "bodyTextLen": 509,
+      "bodyTextHash": "620fc9686b1dae8cb868d29905ee165245bb5edd03c5ce88f15dc6d632e52a1b",
+      "bodyTextPrefix": "Sky Get a wallet Launches Launch a token No factory is pinned in",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

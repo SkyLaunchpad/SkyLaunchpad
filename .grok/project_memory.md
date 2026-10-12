@@ -1,0 +1,1 @@
+- SkyLaunchpad v2-style create options implemented (logo URL, socials, creator tax 0-10%, decaying snipe tax, team whitelist up to 8). Contracts: SkyParams, SkyToken.setMeta, SkyCurve (snipeTaxBps/tax/team), SkyFactory.launch with Socials struct. Graduation remains locked-curve mark, no Uniswap V4. Version bumped to skylaunchpad-2. [2026-10-10]

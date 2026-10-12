@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@import "@fontsource/outfit/latin-400.css";
+@import "@fontsource/outfit/latin-500.css";
+@import "@fontsource/outfit/latin-600.css";
+@import "@fontsource/outfit/latin-700.css";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --color-bg: #d7ecfb;
+  --color-surface: #ffffffeb;
+  --color-inset: #e7f4fd;
+  --color-fg: #12304c;
+  --color-muted: #5d7c96;
+  --color-line: #c5dff2;
+  --color-primary: #1c8fe6;
+  --color-primary-fg: #ffffff;
+  --color-up: #0e9f6e;
+  --color-down: #e11d48;
+}
+
+html[data-theme="dark"] {
+  --color-bg: #071625;
+  --color-surface: #10283ee6;
+  --color-inset: #16344e;
+  --color-fg: #e8f4ff;
+  --color-muted: #9db4c9;
+  --color-line: #1e4666;
+  --color-primary: #5eb6f5;
+  --color-primary-fg: #042033;
+  --color-up: #34d399;
+  --color-down: #fb7185;
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    color-scheme: light;
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--font-sans);
+    color: var(--color-fg);
+    line-height: 1.5;
+    background-color: #b9ddf6;
+    background-image:
+      radial-gradient(ellipse 220px 80px at 8% 12%, #ffffff 0%, #ffffff00 70%),
+      radial-gradient(ellipse 160px 64px at 14% 16%, #ffffffd0 0%, #ffffff00 72%),
+      radial-gradient(ellipse 280px 90px at 78% 8%, #ffffff 0%, #ffffff00 70%),
+      radial-gradient(ellipse 180px 70px at 86% 14%, #ffffffc4 0%, #ffffff00 72%),
+      radial-gradient(ellipse 240px 84px at 42% 28%, #ffffffb8 0%, #ffffff00 70%),
+      radial-gradient(ellipse 200px 72px at 22% 72%, #ffffffcc 0%, #ffffff00 72%),
+      radial-gradient(ellipse 260px 88px at 70% 78%, #ffffff 0%, #ffffff00 70%),
+      linear-gradient(180deg, #e7f5ff 0%, #c5e4f8 42%, #d8eefc 100%);
+    background-attachment: fixed;
+  }
+  html[data-theme="dark"] body {
+    background-color: #071422;
+    background-image:
+      radial-gradient(ellipse 220px 80px at 8% 12%, #1a3d5c88 0%, #0000 70%),
+      radial-gradient(ellipse 280px 90px at 78% 8%, #24507880 0%, #0000 70%),
+      radial-gradient(ellipse 240px 84px at 40% 30%, #16344e66 0%, #0000 70%),
+      radial-gradient(ellipse 200px 72px at 18% 74%, #1a3d5c55 0%, #0000 72%),
+      radial-gradient(ellipse 260px 88px at 72% 80%, #24507866 0%, #0000 70%),
+      linear-gradient(180deg, #071422 0%, #0c2438 48%, #081820 100%);
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: var(--color-primary);
+    color: var(--color-primary-fg);
+  }
+  a {
+    color: inherit;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "SkyLaunchpad",
+      "hasCanvas": false,
+      "bodyTextLen": 555,
+      "bodyTextHash": "777c30b3dc74d3d191cec16a14239b63ade5a0e37bd947331464e7ab9aa09b48",
+      "bodyTextPrefix": "Sky / Create a token Launches PLP Analytics Theme Get a wallet L",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "SkyLaunchpad",
+      "hasCanvas": false,
+      "bodyTextLen": 509,
+      "bodyTextHash": "620fc9686b1dae8cb868d29905ee165245bb5edd03c5ce88f15dc6d632e52a1b",
+      "bodyTextPrefix": "Sky Get a wallet Launches Launch a token No factory is pinned in",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": true,
+  "baselineReasons": [
+    "desktop: body text changed (454 -> 555 chars, hash mismatch)"
+  ]
+}

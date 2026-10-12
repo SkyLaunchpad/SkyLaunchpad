@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/launchpad/create",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "SkyLaunchpad",
+      "hasCanvas": false,
+      "bodyTextLen": 909,
+      "bodyTextHash": "7fde38eebede98335a7f59845eb0b6ad53124b2dfec869732b2b451c8dd8af50",
+      "bodyTextPrefix": "Sky / Create a token Launches PLP Analytics Theme Get a wallet L",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/create-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "SkyLaunchpad",
+      "hasCanvas": false,
+      "bodyTextLen": 863,
+      "bodyTextHash": "55e87d81ecab33810281c1ca7fee61718edfc6d0f8e5ae0610de49426008cfb7",
+      "bodyTextPrefix": "Sky Get a wallet Launch a token on Sky. Two steps on Robinhood C",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/create-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/create-preview.json"
+}
