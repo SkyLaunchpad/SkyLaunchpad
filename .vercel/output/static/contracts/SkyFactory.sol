@@ -4,6 +4,15 @@ pragma solidity 0.8.37;
 import {SkyParams} from "./SkyParams.sol";
 import {SkyCurve} from "./SkyCurve.sol";
 import {SkyToken} from "./SkyToken.sol";
+import {SkyHook} from "./SkyHook.sol";
+import {SkyPool} from "./SkyPool.sol";
+import {SkyRewards} from "./SkyRewards.sol";
+import {SkyLocker} from "./SkyLocker.sol";
+
+interface IQuoteToken {
+    function balanceOf(address account) external view returns (uint256);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+}
 
 /// @title SkyFactory
 /// @notice Deploys a SkyToken and its SkyCurve in one transaction.
@@ -39,7 +48,13 @@ contract SkyFactory {
     address public protocol;
     address public immutable tokenImplementation;
     address public immutable curveImplementation;
+    address public immutable hook;
+    address public immutable pool;
+    address public immutable rewards;
+    address public immutable locker;
     bool private entered;
+
+    address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
 
     Launch[] private _launches;
 
@@ -60,11 +75,18 @@ contract SkyFactory {
         entered = false;
     }
 
-    constructor(address protocol_) {
+    constructor(address protocol_, bytes32 hookSalt) {
         require(protocol_ != address(0), "protocol");
         protocol = protocol_;
         tokenImplementation = address(new SkyToken());
         curveImplementation = address(new SkyCurve());
+        locker = address(new SkyLocker());
+        rewards = address(new SkyRewards());
+        hook = address(new SkyHook{salt: hookSalt}(POOL_MANAGER, rewards));
+        require((uint160(hook) & 0x3FFF) == 0x2244, "hook");
+        pool = address(new SkyPool(POOL_MANAGER, hook));
+        SkyHook(payable(hook)).authorize(pool);
+        SkyRewards(rewards).setHook(hook);
     }
 
     function version() external pure returns (string memory) {
@@ -129,37 +151,42 @@ contract SkyFactory {
         string farcaster;
     }
 
-    /// @notice Extra ETH above the launch fee is the creator's first buy. The creator is exempt from the opening tax.
-    function launch(
-        string calldata name,
-        string calldata symbol,
-        string calldata logo,
-        string calldata description,
-        Socials calldata socials,
-        uint16 taxBps,
-        address[] calldata team,
-        uint256 minTokens
-    ) external payable nonReentrant returns (address tokenAddr, address curveAddr) {
-        require(msg.value >= SkyParams.LAUNCH_FEE, "fee");
-        require(taxBps <= SkyParams.MAX_CREATOR_TAX_BPS, "tax");
-        require(team.length <= SkyParams.MAX_TEAM, "team");
-        uint256 buyValue = msg.value - SkyParams.LAUNCH_FEE;
-        if (buyValue == 0) require(minTokens == 0, "minTokens");
+    struct LaunchArgs {
+        string name;
+        string symbol;
+        string logo;
+        string description;
+        Socials socials;
+        address quote;
+        uint256 buyAmount;
+        uint16 taxBps;
+        address feeWallet;
+        address[] team;
+        uint256 minTokens;
+    }
+
+    /// @notice Launch fee is always ETH. Extra ETH is the creator buy only when quote is the zero address.
+    ///         A stock pair sends `buyAmount` of that ERC-20, and msg.value must be exactly the launch fee.
+    function launch(LaunchArgs calldata a) external payable nonReentrant returns (address tokenAddr, address curveAddr) {
+        require(a.taxBps <= SkyParams.MAX_CREATOR_TAX_BPS, "tax");
+        require(a.team.length <= SkyParams.MAX_TEAM, "team");
+        uint256 buyValue = _buyValue(a.quote, a.buyAmount);
+        if (buyValue == 0) require(a.minTokens == 0, "minTokens");
         else require(buyValue >= SkyParams.MIN_TRADE_ETH, "min");
 
         tokenAddr = _clone(tokenImplementation);
-        SkyToken(tokenAddr).initialize(name, symbol, address(this));
+        SkyToken(tokenAddr).initialize(a.name, a.symbol, address(this));
         SkyToken(tokenAddr).setMeta(
-            logo,
-            description,
-            socials.twitter,
-            socials.telegram,
-            socials.discord,
-            socials.website,
-            socials.farcaster
+            a.logo,
+            a.description,
+            a.socials.twitter,
+            a.socials.telegram,
+            a.socials.discord,
+            a.socials.website,
+            a.socials.farcaster
         );
         curveAddr = _clone(curveImplementation);
-        SkyCurve(curveAddr).initialize(tokenAddr, msg.sender, protocol, description, taxBps, team);
+        SkyCurve(curveAddr).initialize(tokenAddr, msg.sender, protocol, a.description, a.taxBps, a.team, a.quote, a.feeWallet);
         SkyToken(tokenAddr).bindCurve(curveAddr);
 
         _launches.push(
@@ -167,20 +194,39 @@ contract SkyFactory {
                 token: tokenAddr,
                 curve: curveAddr,
                 creator: msg.sender,
-                name: name,
-                symbol: symbol,
-                metadataUri: description,
+                name: a.name,
+                symbol: a.symbol,
+                metadataUri: a.description,
                 launchedAt: uint64(block.timestamp)
             })
         );
 
-        if (buyValue > 0) {
-            SkyCurve(curveAddr).buy{value: buyValue}(msg.sender, minTokens);
+        if (a.quote == address(0)) {
+            if (buyValue > 0) SkyCurve(curveAddr).buy{value: buyValue}(msg.sender, a.minTokens);
+        } else if (buyValue > 0) {
+            _pullQuote(a.quote, curveAddr, a.buyAmount, a.minTokens);
         }
         (bool ok,) = protocol.call{value: SkyParams.LAUNCH_FEE}("");
         require(ok, "fee pay");
 
-        emit Launched(tokenAddr, curveAddr, msg.sender, name, symbol, description);
+        emit Launched(tokenAddr, curveAddr, msg.sender, a.name, a.symbol, a.description);
+    }
+
+    function _buyValue(address quote, uint256 buyAmount) internal view returns (uint256 buyValue) {
+        if (quote == address(0)) {
+            require(msg.value >= SkyParams.LAUNCH_FEE, "fee");
+            require(buyAmount == 0, "buyAmount");
+            return msg.value - SkyParams.LAUNCH_FEE;
+        }
+        require(msg.value == SkyParams.LAUNCH_FEE, "fee");
+        return buyAmount;
+    }
+
+    function _pullQuote(address quote, address curveAddr, uint256 buyAmount, uint256 minTokens) internal {
+        uint256 beforeBal = IQuoteToken(quote).balanceOf(curveAddr);
+        require(IQuoteToken(quote).transferFrom(msg.sender, curveAddr, buyAmount), "pull");
+        uint256 got = IQuoteToken(quote).balanceOf(curveAddr) - beforeBal;
+        SkyCurve(curveAddr).buyFromFactory(msg.sender, got, minTokens);
     }
 
     function newest(uint256 limit) external view returns (CurveView[] memory out) {

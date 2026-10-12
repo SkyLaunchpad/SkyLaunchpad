@@ -1,6 +1,6 @@
-import { encodeDeployData, encodeFunctionData, toHex, type Address, type Hex } from "viem";
-import { curveAbi, factoryAbi, factoryBytecode, tokenAbi } from "./artifacts";
-import { CHAIN_ID, CHAIN_ID_HEX, CHAIN_NAME, EXPLORER, RPC_PUBLIC } from "./params";
+import { concat, encodeAbiParameters, encodeDeployData, encodeFunctionData, getContractAddress, getCreate2Address, keccak256, toHex, type Address, type Hex } from "viem";
+import { curveAbi, factoryAbi, factoryBytecode, hookBytecode, poolAbi, rewardsAbi, tokenAbi } from "./artifacts";
+import { CHAIN_ID, CHAIN_ID_HEX, CHAIN_NAME, EXPLORER, RPC_PUBLIC, V4_POOL_MANAGER, V4_QUOTER } from "./params";
 import type { Relay } from "./reads";
 
 export type EthereumProvider = {
@@ -140,8 +140,117 @@ export async function waitForReceipt(relay: Relay, hash: Hex): Promise<TxReceipt
   throw new Error("The transaction is still pending. Check the explorer for the hash.");
 }
 
-export function factoryInitData(protocol: Address): Hex {
-  return encodeDeployData({ abi: factoryAbi, bytecode: factoryBytecode, args: [protocol] });
+export function factoryInitData(protocol: Address, hookSalt: Hex): Hex {
+  return encodeDeployData({ abi: factoryAbi, bytecode: factoryBytecode, args: [protocol, hookSalt] });
+}
+
+const HOOK_MASK = 0x3fffn;
+const HOOK_FLAG = 0x2244n;
+
+/** Salt whose CREATE2 address has the Sky hook permission bits and no others. */
+export function mineHookSalt(factory: Address): Hex {
+  const rewards = getContractAddress({ from: factory, nonce: 4n });
+  const init = concat([
+    hookBytecode,
+    encodeAbiParameters([{ type: "address" }, { type: "address" }], [V4_POOL_MANAGER, rewards]),
+  ]);
+  const bytecodeHash = keccak256(init);
+  for (let i = 0; i < 500_000; i++) {
+    const salt = toHex(i, { size: 32 });
+    const addr = getCreate2Address({ from: factory, salt, bytecodeHash });
+    if ((BigInt(addr) & HOOK_MASK) === HOOK_FLAG) return salt;
+  }
+  throw new Error("Could not find a Uniswap hook address. Try the deploy again.");
+}
+
+export async function pendingNonce(eth: EthereumProvider, account: Address): Promise<number> {
+  const nonce = await eth.request({ method: "eth_getTransactionCount", params: [account, "pending"] });
+  return Number(nonce);
+}
+
+export function predictedFactory(account: Address, nonce: number): Address {
+  return getContractAddress({ from: account, nonce: BigInt(nonce) });
+}
+
+export function openPoolCalldata(): Hex {
+  return encodeFunctionData({ abi: curveAbi, functionName: "openPool", args: [] });
+}
+
+export function pendingRewardsCalldata(token: Address, user: Address): Hex {
+  return encodeFunctionData({ abi: rewardsAbi, functionName: "pending", args: [token, user] });
+}
+
+export function claimRewardsCalldata(token: Address): Hex {
+  return encodeFunctionData({ abi: rewardsAbi, functionName: "claim", args: [token] });
+}
+
+export function tradeCalldata(
+  token: Address,
+  quote: Address,
+  buyingToken: boolean,
+  amountIn: bigint,
+  minOut: bigint,
+  recipient: Address,
+): Hex {
+  return encodeFunctionData({
+    abi: poolAbi,
+    functionName: "trade",
+    args: [token, quote, buyingToken, amountIn, minOut, recipient],
+  });
+}
+
+export function quoteV4Calldata(token: Address, quote: Address, hook: Address, zeroForOne: boolean, amountIn: bigint): Hex {
+  const currency0 = token.toLowerCase() < quote.toLowerCase() ? token : quote;
+  const currency1 = currency0 === token ? quote : token;
+  return encodeFunctionData({
+    abi: [
+      {
+        type: "function",
+        name: "quoteExactInputSingle",
+        stateMutability: "nonpayable",
+        inputs: [
+          {
+            name: "params",
+            type: "tuple",
+            components: [
+              {
+                name: "poolKey",
+                type: "tuple",
+                components: [
+                  { name: "currency0", type: "address" },
+                  { name: "currency1", type: "address" },
+                  { name: "fee", type: "uint24" },
+                  { name: "tickSpacing", type: "int24" },
+                  { name: "hooks", type: "address" },
+                ],
+              },
+              { name: "zeroForOne", type: "bool" },
+              { name: "exactAmount", type: "uint128" },
+              { name: "hookData", type: "bytes" },
+            ],
+          },
+        ],
+        outputs: [
+          { name: "amountOut", type: "uint256" },
+          { name: "gasEstimate", type: "uint256" },
+        ],
+      },
+    ],
+    functionName: "quoteExactInputSingle",
+    args: [
+      {
+        poolKey: { currency0, currency1, fee: 3000, tickSpacing: 60, hooks: hook },
+        zeroForOne,
+        exactAmount: amountIn,
+        hookData: "0x",
+      },
+    ],
+  });
+}
+
+export function zeroForOne(token: Address, quote: Address, buyingToken: boolean): boolean {
+  const quoteIsCurrency0 = quote.toLowerCase() < token.toLowerCase();
+  return buyingToken ? quoteIsCurrency0 : !quoteIsCurrency0;
 }
 
 export function launchCalldata(
@@ -153,6 +262,7 @@ export function launchCalldata(
   quote: Address,
   buyAmount: bigint,
   taxBps: number,
+  feeWallet: Address,
   team: Address[],
   minTokens: bigint,
 ): Hex {
@@ -169,6 +279,7 @@ export function launchCalldata(
         quote,
         buyAmount,
         taxBps,
+        feeWallet,
         team,
         minTokens,
       },

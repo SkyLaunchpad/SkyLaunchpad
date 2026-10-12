@@ -11,6 +11,9 @@ import {
   approveCalldata,
   factoryInitData,
   launchCalldata,
+  mineHookSalt,
+  pendingNonce,
+  predictedFactory,
   sendTx,
   waitForReceipt,
   type TxReceipt,
@@ -126,6 +129,8 @@ export function CreateToken() {
   const [discord, setDiscord] = useState("");
   const [farcaster, setFarcaster] = useState("");
   const [feePct, setFeePct] = useState("0");
+  const [feeMode, setFeeMode] = useState<"wallet" | "holders">("wallet");
+  const [feeWallet, setFeeWallet] = useState("");
   const [pair, setPair] = useState<{ symbol: string; name: string; address: Address }>({
     symbol: "ETH",
     name: "Ether",
@@ -137,7 +142,6 @@ export function CreateToken() {
   const [teamText, setTeamText] = useState("");
   const [buy, setBuy] = useState("");
   const [slipBps, setSlipBps] = useState(100n);
-  const [paste, setPaste] = useState("");
   const [status, setStatus] = useState("");
   const [pending, setPending] = useState(false);
   const [chainTokens, setChainTokens] = useState<bigint | null>(null);
@@ -249,20 +253,31 @@ export function CreateToken() {
       return;
     }
     setPending(true);
-    setStatus("Confirm the factory deployment in your wallet.");
+    setStatus("Finding a Uniswap v4 hook address…");
     try {
       const eth = wallet.ethereum();
       await ensureRobinhood(eth);
-      const data = factoryInitData(wallet.address);
+      const nonce = await pendingNonce(eth, wallet.address);
+      const salt = mineHookSalt(predictedFactory(wallet.address, nonce));
+      const data = factoryInitData(wallet.address, salt);
       const tx = { from: wallet.address, data, value: 0n };
-      await estimateOrThrow(proto.relay, tx);
+      setStatus("Simulating the factory…");
+      try {
+        await estimateOrThrow(proto.relay, tx);
+      } catch (error) {
+        const message = explainError(error);
+        const relayBlocked = /too large|413|payload|timeout|returned \d{3}/i.test(message);
+        if (!relayBlocked) throw error;
+        setStatus("The network relay could not simulate this factory. Your wallet will check it.");
+      }
+      setStatus("Sign the factory. This build graduates into a locked Uniswap v4 pool.");
       const hash = await sendTx(eth, tx);
       setStatus("Waiting for the factory…");
       const receipt = await waitForReceipt(proto.relay, hash);
       if (!receipt.ok || !receipt.contractAddress) throw new Error("Factory deployment reverted.");
       await proto.pinFactory(receipt.contractAddress);
-      toast.success("Factory verified and pinned.");
-      setStatus("");
+      toast.success("V4 factory verified in this browser.");
+      setStatus(`Factory ${receipt.contractAddress}`);
     } catch (error) {
       const message = explainError(error);
       setStatus(message);
@@ -272,27 +287,9 @@ export function CreateToken() {
     }
   }
 
-  async function onPin() {
-    if (!isAddress(paste.trim())) {
-      toast.error("Paste a 0x factory address.");
-      return;
-    }
-    setPending(true);
-    try {
-      await proto.pinFactory(paste.trim() as Address);
-      toast.success("Factory pinned.");
-      setStatus("");
-    } catch (error) {
-      setStatus(explainError(error));
-      toast.error(explainError(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
   async function onLaunch() {
     if (!wallet.address || !proto.factory || proto.phase !== "ready") {
-      toast.error("Pin a verified factory and connect a wallet on Robinhood Chain.");
+      toast.error("Connect a wallet on Robinhood Chain. The official factory must be verified first.");
       return;
     }
     if (!identityOk || !buyOk || !feeOk) {
@@ -326,6 +323,11 @@ export function CreateToken() {
           if (!approveReceipt.ok) throw new Error(`${pair.symbol} approval reverted.`);
         }
       }
+      if (feeMode === "wallet") {
+        const custom = feeWallet.trim();
+        if (custom && !isAddress(custom)) throw new Error("Fee wallet is not a valid address.");
+      }
+      const feeTo = feeMode === "holders" ? zeroAddress : ((feeWallet.trim() || wallet.address) as Address);
       const data = launchCalldata(
         name.trim(),
         symbol.trim(),
@@ -341,6 +343,7 @@ export function CreateToken() {
         pair.address,
         quoteIsEth ? 0n : devBuy,
         taxBps,
+        feeMode === "holders" ? zeroAddress : feeTo,
         team,
         minTokens,
       );
@@ -521,7 +524,7 @@ export function CreateToken() {
                 Buyers pay {pair.symbol}. The curve opens with {formatEth(VIRTUAL_ETH, 1)} {pair.symbol} of virtual reserves and graduates at {formatEth(GRADUATION_ETH, 1)} {pair.symbol} real. The launch fee stays {formatEth(LAUNCH_FEE)} ETH.
               </p>
             </div>
-            <Field label="Creator fee" hint={`Up to ${maxCreatorPct}% of each trade. Permanent, paid to the launching wallet, and it cannot be raised later.`}>
+            <Field label="Creator fee" hint={`Up to ${maxCreatorPct}% of each trade. Permanent. It goes to the destination you pick below, and it cannot be raised later.`}>
               <div className="flex items-center gap-2">
                 <input value={feePct} onChange={(event) => setFeePct(event.target.value)} inputMode="decimal" className={controlClass} />
                 <span className="text-sm text-muted">%</span>
@@ -552,47 +555,51 @@ export function CreateToken() {
               <textarea value={teamText} onChange={(event) => setTeamText(event.target.value)} placeholder="0x…, 0x…" className={`${controlClass} mt-3 min-h-20 py-2 font-mono text-xs`} />
             </details>
             <fieldset className="flex flex-col gap-2">
-              <legend className="mb-1 text-sm font-medium">Where your creator fees go</legend>
-              <label className="rounded-2xl border-2 border-primary bg-surface p-4 text-sm">
+              <legend className="mb-1 text-sm font-medium">Where creator fees go</legend>
+              <p className="text-sm text-muted">No buyback. Nothing is locked for five years. Pick one destination. It is permanent.</p>
+              <label className={`rounded-2xl border-2 p-4 text-sm ${feeMode === "wallet" ? "border-primary bg-surface" : "border-line bg-surface"}`}>
                 <span className="flex items-center gap-2 font-medium">
-                  <input type="radio" checked readOnly /> Your fee wallet
+                  <input type="radio" name="fee-mode" checked={feeMode === "wallet"} onChange={() => setFeeMode("wallet")} /> Your fee wallet
                 </span>
-                <span className="mt-1 block text-muted">Fees are paid to the launching wallet in the same trade. That wallet is {wallet.address ? wallet.address : "the wallet you sign with"}.</span>
+                <span className="mt-1 block text-muted">Paid in the same trade. Leave this blank and fees go to the wallet you sign with. Or paste a different wallet.</span>
+                {feeMode === "wallet" ? (
+                  <input
+                    value={feeWallet}
+                    onChange={(event) => setFeeWallet(event.target.value)}
+                    placeholder={wallet.address ?? "0x… custom wallet"}
+                    className={`${controlClass} mt-3 font-mono text-xs`}
+                  />
+                ) : null}
               </label>
-              <div className="rounded-2xl border border-line bg-inset p-4 text-sm text-muted">
-                <p className="font-medium text-fg">Buyback and vest</p>
-                <p>Not on this curve. Fees are not locked for five years.</p>
-              </div>
-              <div className="rounded-2xl border border-line bg-inset p-4 text-sm text-muted">
-                <p className="font-medium text-fg">Holders</p>
-                <p>Not on this curve. Fees are not split across holders.</p>
-              </div>
+              <label className={`rounded-2xl border-2 p-4 text-sm ${feeMode === "holders" ? "border-primary bg-surface" : "border-line bg-surface"}`}>
+                <span className="flex items-center gap-2 font-medium">
+                  <input type="radio" name="fee-mode" checked={feeMode === "holders"} onChange={() => setFeeMode("holders")} /> Holders
+                </span>
+                <span className="mt-1 block text-muted">The creator tax and 70% of the 1% trade fee are split across holders by balance. Each holder claims their share on the market page. The curve, the locker, and the Uniswap pool do not earn.</span>
+              </label>
             </fieldset>
             <p className="text-sm text-muted">
               Launch fee {formatEth(LAUNCH_FEE)} ETH. Graduates at {formatEth(GRADUATION_ETH, 2)} {pair.symbol}. Curve fee 1%.
             </p>
             {proto.phase !== "ready" ? (
               <section className="rounded-2xl border border-line bg-surface p-4">
-                <h3 className="font-medium">Pin a factory</h3>
-                <p className="mt-1 text-sm text-muted">This browser has no verified Sky factory yet. One signature deploys it. You receive launch fees. You still cannot touch curve ETH.</p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <Button disabled={pending || !wallet.address} onClick={() => void onDeploy()}>Deploy factory</Button>
-                  <Button variant="line" disabled={pending} onClick={() => void wallet.connect().catch((error) => toast.error(explainError(error)))}>
-                    {wallet.address ? "Wallet connected" : "Connect wallet"}
-                  </Button>
-                </div>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <input value={paste} onChange={(event) => setPaste(event.target.value)} placeholder="Or paste a factory 0x…" className={controlClass} />
-                  <Button variant="line" disabled={pending} onClick={() => void onPin()}>Verify and pin</Button>
+                <h3 className="font-medium">Deploy the V4 factory</h3>
+                <p className="mt-1 text-sm text-muted">
+                  The saved factory cannot graduate into Uniswap v4. One signature deploys this build. At 4.2 of the pair, reserves move into a full-range position that the hook will not let anyone remove.
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-muted">{proto.factory}</p>
+                {proto.reason ? <p className="mt-2 text-sm text-down">{proto.reason}</p> : null}
+                <div className="mt-3">
+                  <Button disabled={pending || !wallet.address} onClick={() => void onDeploy()}>Deploy V4 factory</Button>
                 </div>
               </section>
             ) : (
-              <p className="text-sm text-up">Factory verified.</p>
+              <p className="break-all text-sm text-up">Factory verified. {proto.factory}</p>
             )}
             <div className="flex gap-2">
               <Button type="button" variant="line" onClick={() => setStep(1)}>Back</Button>
               <Button type="submit" className="flex-1" disabled={pending || proto.phase !== "ready" || !wallet.address || !buyOk || !feeOk}>
-                {pending ? "Waiting for wallet…" : proto.phase === "ready" ? `Launch for ${formatEth(total)} ETH${quoteIsEth || devBuy === 0n ? "" : ` + ${formatEth(devBuy, 4)} ${pair.symbol}`}` : "Pin a factory to launch"}
+                {pending ? "Waiting for wallet…" : proto.phase === "ready" ? `Launch for ${formatEth(total)} ETH${quoteIsEth || devBuy === 0n ? "" : ` + ${formatEth(devBuy, 4)} ${pair.symbol}`}` : "Waiting for the official factory"}
               </Button>
             </div>
             {status ? <p className="text-sm text-muted">{status}</p> : null}
@@ -617,6 +624,7 @@ export function CreateToken() {
           <Row k="Supply" v="1,000,000,000" />
           <Row k="Graduates at" v={`${formatEth(GRADUATION_ETH, 2)} ${pair.symbol}`} />
           <Row k="Creator fee" v={`${(taxBps / 100).toFixed(1)}%`} />
+          <Row k="Fees go to" v={feeMode === "holders" ? "Holders" : feeWallet.trim() ? `${feeWallet.slice(0, 6)}…${feeWallet.slice(-4)}` : "Your wallet"} />
           <Row k="Launch fee" v={`${formatEth(LAUNCH_FEE)} ETH`} />
           <Row k="Opening mcap" v={`${formatEth(previewCap, 2)} ${pair.symbol}`} />
           <Row k="Tokens to you" v={devBuy === 0n ? "0" : formatTokens(previewTokens)} />

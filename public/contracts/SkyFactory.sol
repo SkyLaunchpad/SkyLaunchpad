@@ -4,6 +4,10 @@ pragma solidity 0.8.37;
 import {SkyParams} from "./SkyParams.sol";
 import {SkyCurve} from "./SkyCurve.sol";
 import {SkyToken} from "./SkyToken.sol";
+import {SkyHook} from "./SkyHook.sol";
+import {SkyPool} from "./SkyPool.sol";
+import {SkyRewards} from "./SkyRewards.sol";
+import {SkyLocker} from "./SkyLocker.sol";
 
 interface IQuoteToken {
     function balanceOf(address account) external view returns (uint256);
@@ -44,7 +48,13 @@ contract SkyFactory {
     address public protocol;
     address public immutable tokenImplementation;
     address public immutable curveImplementation;
+    address public immutable hook;
+    address public immutable pool;
+    address public immutable rewards;
+    address public immutable locker;
     bool private entered;
+
+    address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
 
     Launch[] private _launches;
 
@@ -65,11 +75,18 @@ contract SkyFactory {
         entered = false;
     }
 
-    constructor(address protocol_) {
+    constructor(address protocol_, bytes32 hookSalt) {
         require(protocol_ != address(0), "protocol");
         protocol = protocol_;
         tokenImplementation = address(new SkyToken());
         curveImplementation = address(new SkyCurve());
+        locker = address(new SkyLocker());
+        rewards = address(new SkyRewards());
+        hook = address(new SkyHook{salt: hookSalt}(POOL_MANAGER, rewards));
+        require((uint160(hook) & 0x3FFF) == 0x2244, "hook");
+        pool = address(new SkyPool(POOL_MANAGER, hook));
+        SkyHook(payable(hook)).authorize(pool);
+        SkyRewards(rewards).setHook(hook);
     }
 
     function version() external pure returns (string memory) {
@@ -143,6 +160,7 @@ contract SkyFactory {
         address quote;
         uint256 buyAmount;
         uint16 taxBps;
+        address feeWallet;
         address[] team;
         uint256 minTokens;
     }
@@ -168,7 +186,7 @@ contract SkyFactory {
             a.socials.farcaster
         );
         curveAddr = _clone(curveImplementation);
-        SkyCurve(curveAddr).initialize(tokenAddr, msg.sender, protocol, a.description, a.taxBps, a.team, a.quote);
+        SkyCurve(curveAddr).initialize(tokenAddr, msg.sender, protocol, a.description, a.taxBps, a.team, a.quote, a.feeWallet);
         SkyToken(tokenAddr).bindCurve(curveAddr);
 
         _launches.push(

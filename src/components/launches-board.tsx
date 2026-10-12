@@ -1,11 +1,14 @@
 import { Link } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { ChevronLeft, ChevronRight, Star } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { zeroAddress } from "viem";
 import { Ident, Notice, useLaunchSearch, ViewToggle } from "@/components/ui";
-import { ago, displayName, formatEth, formatMcap } from "@/lib/chain/format";
+import { ago, displayName, formatEth } from "@/lib/chain/format";
 import { GRADUATION_ETH } from "@/lib/chain/params";
 import { useProtocol } from "@/lib/chain/protocol";
 import type { LaunchRow } from "@/lib/chain/reads";
+import { formatUsd, usdPrices, weiToUsd, type UsdBook } from "@/lib/chain/usd";
 
 type Filter = "all" | "new" | "active" | "near" | "graduated";
 type Sort = "cap" | "new";
@@ -41,10 +44,36 @@ export function LaunchesBoard() {
   const [pairOpen, setPairOpen] = useState(false);
   const [pairFilter, setPairFilter] = useState("all");
   const scroller = useRef<HTMLDivElement>(null);
+  const [book, setBook] = useState<UsdBook | null>(null);
+  const loadUsd = useServerFn(usdPrices);
+  const symbols = useMemo(
+    () => [...new Set(proto.launches.filter((row) => row.quote !== zeroAddress).map((row) => row.quoteSymbol))],
+    [proto.launches],
+  );
 
   useEffect(() => {
     setPins(readPins());
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadUsd({ data: { symbols } })
+      .then((next) => {
+        if (!cancelled) setBook(next);
+      })
+      .catch(() => {
+        if (!cancelled) setBook(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadUsd, symbols]);
+
+  function capLabel(row: LaunchRow): string {
+    const rate = row.quote === zeroAddress ? book?.eth : book?.bySymbol[row.quoteSymbol.toUpperCase()];
+    const usd = rate ? weiToUsd(row.marketCap, rate) : null;
+    return usd == null ? "…" : formatUsd(usd);
+  }
 
   function togglePin(curve: string) {
     setPins((current) => {
@@ -109,7 +138,7 @@ export function LaunchesBoard() {
         <Notice tone="bad">
           <p>{proto.reason}</p>
           <button type="button" className="mt-2 underline" onClick={proto.clearFactory}>
-            Clear this factory
+            Reload factory
           </button>
         </Notice>
       ) : null}
@@ -138,7 +167,7 @@ export function LaunchesBoard() {
                 <TokenFace logo={row.logo} seed={row.token} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{row.name}</span>
-                  <span className="block text-sm text-up">{formatMcap(row.marketCap, row.quoteSymbol)}</span>
+                  <span className="block text-sm text-up">{capLabel(row)}</span>
                   <span className="block text-xs text-muted">{row.graduated ? "Graduated" : `${(Number(row.progressBps) / 100).toFixed(0)}% filled`}</span>
                 </span>
               </Link>
@@ -201,7 +230,7 @@ export function LaunchesBoard() {
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((row) => (
             <li key={row.curve}>
-              <TokenCard row={row} launches={counts.get(row.creator.toLowerCase()) ?? 1} pinned={pins.includes(row.curve)} onPin={() => togglePin(row.curve)} />
+              <TokenCard row={row} cap={capLabel(row)} launches={counts.get(row.creator.toLowerCase()) ?? 1} pinned={pins.includes(row.curve)} onPin={() => togglePin(row.curve)} />
             </li>
           ))}
         </ul>
@@ -218,7 +247,7 @@ export function LaunchesBoard() {
           <ul>
             {visible.map((row) => (
               <li key={row.curve} className="border-b border-line last:border-b-0">
-                <TokenRow row={row} launches={counts.get(row.creator.toLowerCase()) ?? 1} pinned={pins.includes(row.curve)} onPin={() => togglePin(row.curve)} />
+                <TokenRow row={row} cap={capLabel(row)} launches={counts.get(row.creator.toLowerCase()) ?? 1} pinned={pins.includes(row.curve)} onPin={() => togglePin(row.curve)} />
               </li>
             ))}
           </ul>
@@ -259,7 +288,7 @@ function Spark({ bps }: { bps: bigint }) {
   );
 }
 
-function TokenRow({ row, launches, pinned, onPin }: { row: LaunchRow; launches: number; pinned: boolean; onPin: () => void }) {
+function TokenRow({ row, cap, launches, pinned, onPin }: { row: LaunchRow; cap: string; launches: number; pinned: boolean; onPin: () => void }) {
   const pct = Math.max(0, Math.min(100, Number(row.progressBps) / 100));
   return (
     <div className="grid items-center gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.4fr)_120px_140px_180px]">
@@ -286,7 +315,7 @@ function TokenRow({ row, launches, pinned, onPin }: { row: LaunchRow; launches: 
       <div className="hidden md:block">
         <Spark bps={row.progressBps} />
       </div>
-      <p className={`text-lg font-semibold md:text-right ${row.realEth > 0n ? "text-up" : "text-fg"}`}>{formatMcap(row.marketCap, row.quoteSymbol)}</p>
+      <p className={`text-lg font-semibold md:text-right ${row.realEth > 0n ? "text-up" : "text-fg"}`}>{cap}</p>
       <div>
         <div className="h-1.5 overflow-hidden rounded-full bg-inset">
           <div className="h-full bg-up" style={{ width: `${pct}%` }} />
@@ -299,7 +328,7 @@ function TokenRow({ row, launches, pinned, onPin }: { row: LaunchRow; launches: 
   );
 }
 
-function TokenCard({ row, launches, pinned, onPin }: { row: LaunchRow; launches: number; pinned: boolean; onPin: () => void }) {
+function TokenCard({ row, cap, launches, pinned, onPin }: { row: LaunchRow; cap: string; launches: number; pinned: boolean; onPin: () => void }) {
   const pct = Math.max(0, Math.min(100, Number(row.progressBps) / 100));
   return (
     <div className="flex h-full flex-col gap-3 rounded-2xl border border-line bg-surface p-4">
@@ -320,7 +349,7 @@ function TokenCard({ row, launches, pinned, onPin }: { row: LaunchRow; launches:
       </div>
       <Spark bps={row.progressBps} />
       <div className="mt-auto">
-        <p className="font-semibold text-up">{formatMcap(row.marketCap, row.quoteSymbol)}</p>
+        <p className="font-semibold text-up">{cap}</p>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-inset">
           <div className="h-full bg-up" style={{ width: `${pct}%` }} />
         </div>

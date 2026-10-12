@@ -1,0 +1,1 @@
+import{Mt as e}from"./wallet-BxNbO8zH.js";import{s as t}from"./ui-D0RBWFVb.js";import{t as n}from"./launches-board-DkkiPEvU.js";var r=e(),i=function(){return(0,r.jsx)(t,{children:(0,r.jsx)(n,{})})};export{i as component};

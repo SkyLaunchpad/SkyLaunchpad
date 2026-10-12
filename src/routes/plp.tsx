@@ -79,8 +79,8 @@ function PlpPage() {
         </section>
 
         <Notice>
-          Fees are pushed to the creator and treasury during the trade. There is no claim function and no way for
-          either of them to sweep reserves. Practice the path on the{" "}
+          The 1% trade fee is paid during the trade: 30% to the treasury, 70% to the fee wallet or to holders.
+          A creator tax, if the launch set one, goes to that same place. Nobody can sweep the reserves. Practice the path on the{" "}
           <Link to="/simulate" className="underline">
             simulator
           </Link>{" "}

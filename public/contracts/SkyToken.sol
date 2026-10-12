@@ -3,6 +3,14 @@ pragma solidity 0.8.37;
 
 import {SkyParams} from "./SkyParams.sol";
 
+interface ISkyTokenFactory {
+    function rewards() external view returns (address);
+}
+
+interface ISkyTokenRewards {
+    function afterTransfer(address from, address to, uint256 amount) external;
+}
+
 /// @title SkyToken
 /// @notice Fixed-supply ERC-20. The entire supply is minted once, to its curve.
 ///         No owner, no further mint, no transfer tax, no blacklist.
@@ -134,5 +142,7 @@ contract SkyToken {
             balanceOf[to] += amount;
         }
         emit Transfer(from, to, amount);
+        address rewards = ISkyTokenFactory(factory).rewards();
+        if (rewards != address(0)) ISkyTokenRewards(rewards).afterTransfer(from, to, amount);
     }
 }

@@ -10,10 +10,11 @@ import {
   curveDeployedBytecode,
   factoryAbi,
   factoryDeployedBytecode,
+  rewardsAbi,
   tokenAbi,
   tokenDeployedBytecode,
 } from "./artifacts";
-import { cloneTarget, sameCode } from "./clone";
+import { cloneTarget, sameCode, sameFactoryCode } from "./clone";
 import { CHAIN_ID, EXPECTED_PARAMS, VERSION } from "./params";
 import type { RpcCall, RpcItem } from "./rpc";
 
@@ -23,6 +24,10 @@ export type FactoryInfo = {
   protocol: Address;
   tokenImplementation: Address;
   curveImplementation: Address;
+  hook: Address;
+  pool: Address;
+  rewards: Address;
+  locker: Address;
   launchCount: bigint;
   version: string;
 };
@@ -76,6 +81,8 @@ export type MarketDetail = {
   logo: string;
   quote: Address;
   quoteSymbol: string;
+  feeRecipient: Address;
+  poolId: Hex;
   history: { cap: bigint; time: number }[];
   prints: PrintRow[];
 };
@@ -141,8 +148,8 @@ export async function readFactory(
   if (Number(chainId) !== CHAIN_ID) {
     throw new Error("RPC is not Robinhood Chain mainnet.");
   }
-  if (!sameCode(String(code), factoryDeployedBytecode)) {
-    throw new Error("That address is not the SkyLaunchpad factory from this build. Refusing to read it.");
+  if (!sameFactoryCode(String(code), factoryDeployedBytecode)) {
+    throw new Error("That address is not the SkyLaunchpad V4 factory from this build. Deploy the new factory. The old one cannot be upgraded.");
   }
 
   const versionData = encodeFunctionData({ abi: factoryAbi, functionName: "version", args: [] });
@@ -150,18 +157,27 @@ export async function readFactory(
   const tokenImplData = encodeFunctionData({ abi: factoryAbi, functionName: "tokenImplementation", args: [] });
   const curveImplData = encodeFunctionData({ abi: factoryAbi, functionName: "curveImplementation", args: [] });
   const protocolData = encodeFunctionData({ abi: factoryAbi, functionName: "protocol", args: [] });
+  const hookData = encodeFunctionData({ abi: factoryAbi, functionName: "hook", args: [] });
+  const poolData = encodeFunctionData({ abi: factoryAbi, functionName: "pool", args: [] });
+  const rewardsData = encodeFunctionData({ abi: factoryAbi, functionName: "rewards", args: [] });
+  const lockerData = encodeFunctionData({ abi: factoryAbi, functionName: "locker", args: [] });
   const countData = encodeFunctionData({ abi: factoryAbi, functionName: "launchCount", args: [] });
   const newestData = encodeFunctionData({ abi: factoryAbi, functionName: "newest", args: [40n] });
 
-  const [versionR, paramsR, tokenImplR, curveImplR, protocolR, countR, newestR] = await batch(relay, [
-    call(factory, versionData),
-    call(factory, paramData),
-    call(factory, tokenImplData),
-    call(factory, curveImplData),
-    call(factory, protocolData),
-    call(factory, countData),
-    call(factory, newestData),
-  ]);
+  const [versionR, paramsR, tokenImplR, curveImplR, protocolR, hookR, poolR, rewardsR, lockerR, countR, newestR] =
+    await batch(relay, [
+      call(factory, versionData),
+      call(factory, paramData),
+      call(factory, tokenImplData),
+      call(factory, curveImplData),
+      call(factory, protocolData),
+      call(factory, hookData),
+      call(factory, poolData),
+      call(factory, rewardsData),
+      call(factory, lockerData),
+      call(factory, countData),
+      call(factory, newestData),
+    ]);
 
   const version = decodeFunctionResult({ abi: factoryAbi, functionName: "version", data: asHex(versionR, "version") });
   if (version !== VERSION) throw new Error(`Factory version is ${version}, this app expects ${VERSION}.`);
@@ -199,6 +215,10 @@ export async function readFactory(
     functionName: "protocol",
     data: asHex(protocolR, "protocol"),
   });
+  const hook = decodeFunctionResult({ abi: factoryAbi, functionName: "hook", data: asHex(hookR, "hook") });
+  const pool = decodeFunctionResult({ abi: factoryAbi, functionName: "pool", data: asHex(poolR, "pool") });
+  const rewards = decodeFunctionResult({ abi: factoryAbi, functionName: "rewards", data: asHex(rewardsR, "rewards") });
+  const locker = decodeFunctionResult({ abi: factoryAbi, functionName: "locker", data: asHex(lockerR, "locker") });
   const launchCount = decodeFunctionResult({
     abi: factoryAbi,
     functionName: "launchCount",
@@ -289,7 +309,7 @@ export async function readFactory(
     }
   }
 
-  return { info: { protocol, tokenImplementation, curveImplementation, launchCount, version }, launches };
+  return { info: { protocol, tokenImplementation, curveImplementation, hook, pool, rewards, locker, launchCount, version }, launches };
 }
 
 async function assertCurveCode(relay: Relay, curve: Address): Promise<void> {
@@ -314,19 +334,24 @@ export async function readMarket(relay: Relay, curve: Address): Promise<MarketDe
   const quoteData = encodeFunctionData({ abi: curveAbi, functionName: "quote", args: [] });
   const historyData = encodeFunctionData({ abi: curveAbi, functionName: "history", args: [] });
   const printsData = encodeFunctionData({ abi: curveAbi, functionName: "prints", args: [] });
+  const poolIdData = encodeFunctionData({ abi: curveAbi, functionName: "poolId", args: [] });
+  const feeWalletData = encodeFunctionData({ abi: curveAbi, functionName: "feeRecipient", args: [] });
 
-  const [stateR, tokenR, creatorR, protocolR, factoryR, metaR, launchedR, quoteR, historyR, printsR] = await batch(relay, [
-    call(curve, packed),
-    call(curve, tokenData),
-    call(curve, creatorData),
-    call(curve, protocolData),
-    call(curve, factoryData),
-    call(curve, metaData),
-    call(curve, launchedData),
-    call(curve, quoteData),
-    call(curve, historyData),
-    call(curve, printsData),
-  ]);
+  const [stateR, tokenR, creatorR, protocolR, factoryR, metaR, launchedR, quoteR, historyR, printsR, poolIdR, feeWalletR] =
+    await batch(relay, [
+      call(curve, packed),
+      call(curve, tokenData),
+      call(curve, creatorData),
+      call(curve, protocolData),
+      call(curve, factoryData),
+      call(curve, metaData),
+      call(curve, launchedData),
+      call(curve, quoteData),
+      call(curve, historyData),
+      call(curve, printsData),
+      call(curve, poolIdData),
+      call(curve, feeWalletData),
+    ]);
 
   const state = decodeFunctionResult({ abi: curveAbi, functionName: "viewState", data: asHex(stateR, "state") });
   const token = decodeFunctionResult({ abi: curveAbi, functionName: "token", data: asHex(tokenR, "token") });
@@ -392,6 +417,12 @@ export async function readMarket(relay: Relay, curve: Address): Promise<MarketDe
     spotPrice: pick(state, 6, "spotPrice_"),
     quote,
     quoteSymbol,
+    feeRecipient: decodeFunctionResult({
+      abi: curveAbi,
+      functionName: "feeRecipient",
+      data: asHex(feeWalletR, "fee wallet"),
+    }),
+    poolId: decodeFunctionResult({ abi: curveAbi, functionName: "poolId", data: asHex(poolIdR, "pool") }),
     history: pick<readonly bigint[]>(history, 0, "caps").map((cap, i) => ({
       cap,
       time: Number(pick<readonly bigint[]>(history, 1, "times")[i] ?? 0),
@@ -500,4 +531,127 @@ export function readDescription(uri: string): string {
   } catch {
     return "";
   }
+}
+
+export type FeeShare = {
+  token: Address;
+  curve: Address;
+  name: string;
+  symbol: string;
+  quoteSymbol: string;
+  holders: boolean;
+  feeRecipient: Address;
+  taxBps: number;
+  balance: bigint;
+  pending: bigint;
+  yours: boolean;
+};
+
+/** Creator-tax destination for markets this wallet launched, receives, or holds. */
+export async function readFeeShares(
+  relay: Relay,
+  launches: LaunchRow[],
+  user: Address,
+  rewards: Address | null,
+): Promise<FeeShare[]> {
+  const feeData = encodeFunctionData({ abi: curveAbi, functionName: "feeRecipient", args: [] });
+  const taxData = encodeFunctionData({ abi: curveAbi, functionName: "creatorTaxBps", args: [] });
+  const rows: FeeShare[] = [];
+  const who = user.toLowerCase();
+
+  for (let start = 0; start < launches.length; start += 8) {
+    const slice = launches.slice(start, start + 8);
+    const calls: RpcCall[] = [];
+    for (const row of slice) {
+      calls.push(call(row.curve, feeData));
+      calls.push(call(row.curve, taxData));
+      calls.push(call(row.token, encodeFunctionData({ abi: tokenAbi, functionName: "balanceOf", args: [user] })));
+    }
+    const results = await batch(relay, calls);
+    slice.forEach((row, index) => {
+      const base = index * 3;
+      let feeRecipient: Address = zeroAddress;
+      let taxBps = 0;
+      let balance = 0n;
+      try {
+        feeRecipient = decodeFunctionResult({
+          abi: curveAbi,
+          functionName: "feeRecipient",
+          data: asHex(results[base], "feeRecipient"),
+        });
+      } catch {
+        return;
+      }
+      try {
+        taxBps = Number(
+          decodeFunctionResult({
+            abi: curveAbi,
+            functionName: "creatorTaxBps",
+            data: asHex(results[base + 1], "tax"),
+          }),
+        );
+      } catch {
+        taxBps = 0;
+      }
+      try {
+        balance = decodeFunctionResult({
+          abi: tokenAbi,
+          functionName: "balanceOf",
+          data: asHex(results[base + 2], "balance"),
+        });
+      } catch {
+        balance = 0n;
+      }
+      const holders = feeRecipient.toLowerCase() === zeroAddress;
+      const yours =
+        row.creator.toLowerCase() === who ||
+        feeRecipient.toLowerCase() === who ||
+        (holders && balance > 0n);
+      if (!yours) return;
+      rows.push({
+        token: row.token,
+        curve: row.curve,
+        name: row.name,
+        symbol: row.symbol,
+        quoteSymbol: row.quoteSymbol,
+        holders,
+        feeRecipient,
+        taxBps,
+        balance,
+        pending: 0n,
+        yours: true,
+      });
+    });
+  }
+
+  if (rewards) {
+    const claimable = rows.filter((row) => row.holders);
+    for (let start = 0; start < claimable.length; start += 20) {
+      const slice = claimable.slice(start, start + 20);
+      const results = await batch(
+        relay,
+        slice.map((row) =>
+          call(
+            rewards,
+            encodeFunctionData({ abi: rewardsAbi, functionName: "pending", args: [row.token, user] }),
+          ),
+        ),
+      );
+      slice.forEach((row, index) => {
+        try {
+          const hex = asHex(results[index], "pending");
+          row.pending = hex === "0x" ? 0n : BigInt(hex);
+        } catch {
+          row.pending = 0n;
+        }
+      });
+    }
+  }
+
+  rows.sort((a, b) => {
+    if (a.pending !== b.pending) return a.pending > b.pending ? -1 : 1;
+    if (a.holders !== b.holders) return a.holders ? -1 : 1;
+    return a.symbol.localeCompare(b.symbol);
+  });
+  return rows;
 }

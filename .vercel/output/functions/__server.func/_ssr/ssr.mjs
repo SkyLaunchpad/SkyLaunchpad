@@ -1,5 +1,5 @@
 import { n as __exportAll } from "../_runtime.mjs";
-import { A as toCrossJSONStream, B as invariant, D as fromJSON, F as resolveManifestAssetLink, I as resolveManifestCssLink, K as isRedirect, L as waitForReason, N as getScriptPreloadAttrs, P as getStylesheetHref, Q as require_react, R as _getRenderedMatches, U as isDangerousProtocol, W as isPromise, X as isNotFound, Y as rootRouteId, Z as require_jsx_runtime, a as disposeSsrResponse, c as replaceSsrResponse, h as RouterProvider, i as defineHandlerCallback, k as toCrossJSONAsync, l as stripSsrResponseBody, o as isSsrResponse, q as parseRedirect, r as bindSsrResponseToRequest, s as normalizeSsrResponse, t as renderRouterToStream, z as executeRewriteInput } from "../_libs/@tanstack/react-router+[...].mjs";
+import { A as toCrossJSONAsync, B as executeRewriteInput, F as getStylesheetHref, G as isPromise, I as resolveManifestAssetLink, J as parseRedirect, L as resolveManifestCssLink, O as fromJSON, P as getScriptPreloadAttrs, Q as require_react, R as waitForReason, V as invariant, W as isDangerousProtocol, X as rootRouteId, Z as isNotFound, a as disposeSsrResponse, c as replaceSsrResponse, h as RouterProvider, i as defineHandlerCallback, j as toCrossJSONStream, l as stripSsrResponseBody, o as isSsrResponse, q as isRedirect, r as bindSsrResponseToRequest, s as normalizeSsrResponse, t as renderRouterToStream, w as require_jsx_runtime, z as _getRenderedMatches } from "../_libs/@tanstack/react-router+[...].mjs";
 import { n as createServerHistory } from "../_libs/tanstack__history.mjs";
 import { a as defaultSerovalDeserializerPlugins, i as createRawStreamRPCPlugin, n as attachRouterServerSsrUtils, o as makeSerovalPlugin, r as getNormalizedURL, s as createSerializationAdapter, t as mergeHeaders } from "../_libs/@tanstack/router-core+[...].mjs";
 import { n as toResponse, t as H3Event } from "../_libs/h3-v2+rou3.mjs";
@@ -103,7 +103,7 @@ var HEADERS = { TSS_SHELL: "X-TSS_SHELL" };
 * the dev styles URL for route-scoped CSS collection.
 */
 async function getStartManifest(matchedRoutes) {
-	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-cUTCClBc.mjs");
+	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-T1BAd41a.mjs");
 	const startManifest = tsrStartManifest();
 	let routes = startManifest.routes;
 	routes[rootRouteId];
@@ -122,10 +122,24 @@ async function getStartManifest(matchedRoutes) {
 		routes: manifestRoutes
 	};
 }
-var manifest = { "242bc70529b43905379a92defc0916bd4ef240b9d4bff5130479717c45619aea": {
-	functionName: "robinhoodRelay_createServerFn_handler",
-	importer: () => import("./rpc-cjZm-5EY.mjs")
-} };
+var manifest = {
+	"204a79e0dd3b988dcb000191f56bcb4e22be9a7427d05360d01e51feffde6e7e": {
+		functionName: "listStockPairs_createServerFn_handler",
+		importer: () => import("./stocks-M0X3yMog.mjs")
+	},
+	"242bc70529b43905379a92defc0916bd4ef240b9d4bff5130479717c45619aea": {
+		functionName: "robinhoodRelay_createServerFn_handler",
+		importer: () => import("./rpc-CSC1Unta.mjs")
+	},
+	"8c5dd71f7e36d5ac2400c8f3e57ecd74befc9ebf5cb7c8c75a2c9b7ab48e2419": {
+		functionName: "hostLogo_createServerFn_handler",
+		importer: () => import("./logo-host-D5dK5S0K.mjs")
+	},
+	"f785aa331a52600e58d5662ecd8abbf931e795992eeec5e8a545026afe62c325": {
+		functionName: "usdPrices_createServerFn_handler",
+		importer: () => import("./usd-CZnR3stl.mjs")
+	}
+};
 async function getServerFnById(id, access) {
 	const serverFnInfo = manifest[id];
 	if (!serverFnInfo) throw new Error("Server function info not found for " + id);
@@ -1528,7 +1542,7 @@ var getBaseManifest = getProdBaseManifest;
 var createEarlyHintsForRequest = createEarlyHintsCollector;
 async function loadEntries() {
 	const [routerEntry, startEntry, pluginAdapters] = await Promise.all([
-		import("./router-CQscQTY8.mjs").then((n) => n.t),
+		import("./router-BNcwToXC.mjs").then((n) => n.t),
 		import("./start-5Z2QO8AU.mjs"),
 		import("./empty-plugin-adapters-D9UWiqvJ.mjs")
 	]);

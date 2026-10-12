@@ -137,10 +137,14 @@ function GuidePage() {
               virtual offset. Slippage is enforced on chain with the minimum you signed.
             </p>
           </Step>
-          <Step n="7" title="Graduation is a mark, not a migration">
+          <Step n="7" title="Graduation locks a Uniswap v4 position">
             <p>
-              When real reserves reach 4.2 ETH the market is graduated forever. Trading stays on the same curve.
-              There is no automatic Uniswap migration and no admin key that can move the ETH.
+              When real reserves reach 4.2 of the pair, the curve closes and hands the reserves over. Opening the
+              Uniswap v4 position is a second transaction if it does not land in the same buy. The hook reverts if
+              anyone tries to remove it, and it keeps charging 1% plus the creator tax. At launch you send that
+              creator share to your fee wallet in the same trade, or you split it across holders. There is no
+              buyback and nothing vests for five years. Deploy this factory once from Create a token. An older
+              factory cannot be upgraded into it.
             </p>
           </Step>
         </ol>

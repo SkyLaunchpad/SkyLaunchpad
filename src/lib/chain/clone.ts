@@ -17,3 +17,24 @@ export function cloneTarget(code: string): Address | null {
 export function sameCode(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
+
+/** Factory runtime embeds immutable implementation addresses where the artifact still has zeros. */
+export function sameFactoryCode(live: string, expected: string): boolean {
+  const a = live.toLowerCase();
+  const b = expected.toLowerCase();
+  if (!a.startsWith("0x") || !b.startsWith("0x") || a.length !== b.length) return false;
+  let i = 2;
+  while (i < a.length) {
+    if (a[i] === b[i] && a[i + 1] === b[i + 1]) {
+      i += 2;
+      continue;
+    }
+    const word = a.slice(i, i + 40);
+    if (i + 40 <= a.length && b.slice(i, i + 40) === "0".repeat(40) && word !== "0".repeat(40)) {
+      i += 40;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}

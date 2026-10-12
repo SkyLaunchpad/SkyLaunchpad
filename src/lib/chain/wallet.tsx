@@ -11,11 +11,20 @@ type WalletState = {
   busy: boolean;
   onRobinhood: boolean;
   connect: () => Promise<void>;
-  forget: () => void;
+  disconnect: () => Promise<void>;
   ethereum: () => EthereumProvider;
 };
 
 const Ctx = createContext<WalletState | null>(null);
+const DISMISS_KEY = "sky.wallet.dismissed";
+
+function dismissed(): boolean {
+  try {
+    return sessionStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<Address | null>(null);
@@ -35,8 +44,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     void readSilentAccount(eth)
       .then((found) => {
         if (cancelled) return;
-        setAddress(found.address);
         setChainId(found.chainId);
+        if (!dismissed()) setAddress(found.address);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -46,7 +55,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const onAccounts = (...args: unknown[]) => {
       const accounts = args[0];
       const list = Array.isArray(accounts) ? accounts : [];
-      setAddress(typeof list[0] === "string" ? (list[0] as Address) : null);
+      const next = typeof list[0] === "string" ? (list[0] as Address) : null;
+      if (!next) {
+        try {
+          sessionStorage.setItem(DISMISS_KEY, "1");
+        } catch {
+          /* ignore */
+        }
+        setAddress(null);
+        return;
+      }
+      if (dismissed()) return;
+      setAddress(next);
     };
     const onChain = (...args: unknown[]) => {
       const next = args[0];
@@ -79,6 +99,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (!eth) throw new Error("No wallet found. Install MetaMask or Rabby, then reload.");
         setBusy(true);
         try {
+          try {
+            sessionStorage.removeItem(DISMISS_KEY);
+          } catch {
+            /* ignore */
+          }
           const next = await connectWallet(eth);
           const found = await readSilentAccount(eth);
           setAddress(next);
@@ -87,7 +112,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setBusy(false);
         }
       },
-      forget: () => setAddress(null),
+      disconnect: async () => {
+        try {
+          sessionStorage.setItem(DISMISS_KEY, "1");
+        } catch {
+          /* ignore */
+        }
+        setAddress(null);
+        const eth = getEthereum();
+        if (!eth) return;
+        try {
+          await eth.request({
+            method: "wallet_revokePermissions",
+            params: [{ eth_accounts: {} }],
+          });
+        } catch {
+          /* Some wallets cannot revoke. The app still treats the wallet as signed out. */
+        }
+      },
     }),
     [address, chainId, hasProvider, ready, busy],
   );

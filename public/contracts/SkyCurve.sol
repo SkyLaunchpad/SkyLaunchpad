@@ -8,12 +8,43 @@ interface IQuoteToken {
     function balanceOf(address account) external view returns (uint256);
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
+interface ISkyLaunch {
+    function pool() external view returns (address);
+    function rewards() external view returns (address);
+    function locker() external view returns (address);
+}
+
+interface ISkyPool {
+    function deposit(address token, address quote, address creator, uint16 taxBps, uint256 tokenAmt, uint256 quoteAmt)
+        external
+        payable;
+    function seedHeld(address curve) external returns (bytes32 poolId);
+    function held(address curve)
+        external
+        view
+        returns (
+            address token,
+            address quote,
+            address creator,
+            uint256 tokenAmt,
+            uint256 quoteAmt,
+            uint16 taxBps,
+            bool ready
+        );
+}
+
+interface ISkyRewards {
+    function onFee(address token, address quote, uint256 amount) external payable;
 }
 
 /// @title SkyCurve
 /// @notice Constant-product market for one SkyToken.
 ///         Virtual ETH is not money. Real ETH stays here until holders sell.
-///         There is no withdraw. Crossing 4.2 ETH marks the market graduated.
+///         There is no withdraw. At 4.2 of the quote asset the reserves move into a
+///         full-range Uniswap v4 position. SkyHook reverts if anyone tries to remove it.
 ///         Buys in the first 5 seconds pay a decaying opening tax unless the
 ///         buyer is the creator or on the public team list. Sells are never
 ///         opening-taxed. The creator tax is a quote-side cut, not a transfer tax.
@@ -32,8 +63,12 @@ contract SkyCurve {
     address public factory;
     /// @notice Quote asset. The zero address means native ETH. Any other address is an ERC-20.
     address public quote;
+    /// @notice Set when reserves move into the locked Uniswap v4 position. Zero before that.
+    bytes32 public poolId;
     string public metadataUri;
     uint16 public creatorTaxBps;
+    /// @notice Creator-fee receiver. The zero address means holders share the creator fees.
+    address public feeRecipient;
     address[8] public team;
     uint8 public teamCount;
 
@@ -41,6 +76,8 @@ contract SkyCurve {
     uint256 public virtualToken;
     uint256 public realEth;
     bool public graduated;
+    /// @notice True once the price-matched reserves have left the curve for the pool helper.
+    bool public deposited;
     uint64 public launchedAt;
     bool private initialized;
     bool private entered;
@@ -64,6 +101,7 @@ contract SkyCurve {
         uint256 timestamp
     );
     event Graduated(address indexed curve, uint256 realEth);
+    event PoolOpened(bytes32 indexed poolId);
     event ProtocolUpdated(address indexed next);
 
     modifier nonReentrant() {
@@ -84,7 +122,8 @@ contract SkyCurve {
         string calldata metadata_,
         uint16 taxBps_,
         address[] calldata team_,
-        address quote_
+        address quote_,
+        address feeRecipient_
     ) external {
         require(!initialized, "init");
         require(token_ != address(0) && creator_ != address(0) && protocol_ != address(0), "zero");
@@ -97,6 +136,7 @@ contract SkyCurve {
         protocol = protocol_;
         factory = msg.sender;
         quote = quote_;
+        feeRecipient = feeRecipient_;
         metadataUri = metadata_;
         creatorTaxBps = taxBps_;
         virtualEth = SkyParams.VIRTUAL_ETH;
@@ -221,6 +261,7 @@ contract SkyCurve {
 
     function _fill(address recipient, uint256 value, uint256 minTokens) internal returns (uint256 tokensOut) {
         require(initialized, "init");
+        require(!graduated, "graduated");
         require(recipient != address(0), "recipient");
         require(value >= SkyParams.MIN_TRADE_ETH, "min");
         uint256 snipe = (value * snipeTaxBps(recipient)) / 10_000;
@@ -246,13 +287,14 @@ contract SkyCurve {
         _print(true, net, tokensOut, recipient);
 
         require(SkyToken(token).transfer(recipient, tokensOut), "transfer");
-        _pay(fee + snipe);
-        _send(creator, tax);
+        _settleFees(fee, tax, snipe);
+        _graduate();
         emit Trade(recipient, true, net, tokensOut, realEth, marketCap(), block.timestamp);
     }
 
     function sell(uint256 tokensIn, uint256 minEth) external nonReentrant returns (uint256 ethOut) {
         require(initialized, "init");
+        require(!graduated, "graduated");
         require(tokensIn > 0, "tokens");
         uint256 newVirtualToken = virtualToken + tokensIn;
         uint256 newVirtualEth = SkyParams.K / newVirtualToken;
@@ -272,10 +314,80 @@ contract SkyCurve {
         _print(false, ethOut, tokensIn, msg.sender);
 
         require(SkyToken(token).transferFrom(msg.sender, address(this), tokensIn), "transfer");
-        _pay(fee);
-        _send(creator, tax);
+        _settleFees(fee, tax, 0);
         _send(msg.sender, ethOut);
+        _graduate();
         emit Trade(msg.sender, false, ethOut, tokensIn, realEth, marketCap(), block.timestamp);
+    }
+
+    /// @notice Retry seeding after the curve has already handed its reserves to the pool helper.
+    function openPool() external nonReentrant {
+        require(initialized && graduated && poolId == bytes32(0), "open");
+        _seed();
+        require(poolId != bytes32(0), "pool");
+    }
+
+    function _settleFees(uint256 fee, uint256 tax, uint256 snipe) internal {
+        uint256 protocolFee = (fee * 3_000) / 10_000;
+        uint256 creatorCash = fee - protocolFee + tax;
+        _send(protocol, protocolFee + snipe);
+        if (creatorCash == 0) return;
+        if (feeRecipient != address(0)) {
+            _send(feeRecipient, creatorCash);
+            return;
+        }
+        address rewards = ISkyLaunch(factory).rewards();
+        if (quote == address(0)) {
+            ISkyRewards(rewards).onFee{value: creatorCash}(token, address(0), creatorCash);
+        } else {
+            IQuoteToken(quote).approve(rewards, creatorCash);
+            ISkyRewards(rewards).onFee(token, quote, creatorCash);
+            IQuoteToken(quote).approve(rewards, 0);
+        }
+    }
+
+    function _graduate() internal {
+        if (graduated || realEth < SkyParams.GRADUATION_ETH) return;
+        graduated = true;
+        emit Graduated(address(this), realEth);
+        _seed();
+    }
+
+    function _seed() internal {
+        if (poolId != bytes32(0)) return;
+        address helper = ISkyLaunch(factory).pool();
+        if (!deposited) {
+            try this.stageDeposit() {} catch {
+                return;
+            }
+        }
+        try ISkyPool(helper).seedHeld(address(this)) returns (bytes32 id) {
+            poolId = id;
+            emit PoolOpened(id);
+        } catch {}
+    }
+
+    function stageDeposit() external {
+        require(msg.sender == address(this), "self");
+        require(graduated && !deposited, "stage");
+        address helper = ISkyLaunch(factory).pool();
+        uint256 quoteAmt = realEth;
+        uint256 tokensLeft = IQuoteToken(token).balanceOf(address(this));
+        require(quoteAmt > 0 && tokensLeft > 0, "empty");
+        uint256 poolTokens = (tokensLeft * quoteAmt) / (quoteAmt + SkyParams.VIRTUAL_ETH);
+        require(poolTokens > 0, "tokens");
+        uint256 leftover = tokensLeft - poolTokens;
+        if (leftover > 0) {
+            address locker = ISkyLaunch(factory).locker();
+            require(IQuoteToken(token).transfer(locker, leftover), "locker");
+        }
+        IQuoteToken(token).approve(helper, poolTokens);
+        uint256 ethValue = quote == address(0) ? quoteAmt : 0;
+        if (quote != address(0)) IQuoteToken(quote).approve(helper, quoteAmt);
+        ISkyPool(helper).deposit{value: ethValue}(token, quote, creator, creatorTaxBps, poolTokens, quoteAmt);
+        IQuoteToken(token).approve(helper, 0);
+        if (quote != address(0)) IQuoteToken(quote).approve(helper, 0);
+        deposited = true;
     }
 
     function history() external view returns (uint256[] memory caps, uint64[] memory times) {

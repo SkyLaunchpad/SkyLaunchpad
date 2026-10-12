@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import type { Address } from "viem";
-import { explainError, isAddress } from "./format";
+import { explainError } from "./format";
+import { OFFICIAL_FACTORY } from "./params";
 import type { FactoryInfo, LaunchRow, Relay } from "./reads";
 import { readChain, readFactory, unwrap } from "./reads";
 import { robinhoodRelay, type RpcCall, type RpcItem } from "./rpc";
@@ -38,18 +39,16 @@ type ProtocolApi = ProtocolState & {
 
 const Ctx = createContext<ProtocolApi | null>(null);
 
-function readStored(): Address | null {
+function readStored(): Address {
   try {
-    const url = new URLSearchParams(window.location.search).get("factory");
-    if (isAddress(url)) {
-      localStorage.setItem(STORAGE_KEY, url);
-      return url;
-    }
     const stored = localStorage.getItem(STORAGE_KEY);
-    return isAddress(stored) ? stored : null;
+    if (stored && stored.toLowerCase() !== OFFICIAL_FACTORY.toLowerCase()) {
+      localStorage.removeItem(STORAGE_KEY);
+    }
   } catch {
-    return null;
+    /* storage is unavailable during server render */
   }
+  return OFFICIAL_FACTORY as Address;
 }
 
 export function ProtocolProvider({ children }: { children: ReactNode }) {
@@ -59,11 +58,11 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
   const relay = useCallback<Relay>(async (calls: RpcCall[]) => {
     return unwrap((await relayRef.current({ data: { calls } })) as RpcItem[]);
   }, []);
-  const factoryRef = useRef<Address | null>(null);
+  const factoryRef = useRef<Address | null>(OFFICIAL_FACTORY as Address);
   const busy = useRef(false);
   const [state, setState] = useState<ProtocolState>({
     phase: "boot",
-    factory: null,
+    factory: OFFICIAL_FACTORY as Address,
     info: null,
     launches: [],
     chain: null,
@@ -140,9 +139,6 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
     async (factory: Address) => {
       localStorage.setItem(STORAGE_KEY, factory);
       factoryRef.current = factory;
-      const url = new URL(window.location.href);
-      url.searchParams.set("factory", factory);
-      window.history.replaceState({}, "", url);
       await load(factory);
     },
     [load],
@@ -150,11 +146,11 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
 
   const clearFactory = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
-    factoryRef.current = null;
+    factoryRef.current = OFFICIAL_FACTORY as Address;
     const url = new URL(window.location.href);
     url.searchParams.delete("factory");
     window.history.replaceState({}, "", url);
-    void load(null);
+    void load(OFFICIAL_FACTORY as Address);
   }, [load]);
 
   useEffect(() => {

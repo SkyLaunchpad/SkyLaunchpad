@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import solc from "solc";
 
 const root = "/workspace";
-const files = ["SkyParams.sol", "SkyToken.sol", "SkyCurve.sol", "SkyFactory.sol"];
+const files = ["SkyParams.sol", "SkyToken.sol", "SkyCurve.sol", "SkyHook.sol", "SkyPool.sol", "SkyRewards.sol", "SkyLocker.sol", "SkyFactory.sol"];
 const sources = {};
 for (const file of files) {
   sources[file] = { content: readFileSync(join(root, "contracts", file), "utf8") };
@@ -37,7 +37,7 @@ if (output.errors?.length) {
   if (fatal.length) process.exit(1);
 }
 
-const want = ["SkyToken", "SkyCurve", "SkyFactory"];
+const want = ["SkyToken", "SkyCurve", "SkyHook", "SkyPool", "SkyRewards", "SkyLocker", "SkyFactory"];
 const compiled = {};
 for (const name of want) {
   const file = `${name}.sol`;
@@ -73,6 +73,16 @@ export const tokenDeployedBytecode = ${JSON.stringify(compiled.SkyToken.deployed
 export const curveAbi = ${JSON.stringify(compiled.SkyCurve.abi, null, 2)} as const satisfies Abi;
 export const curveBytecode = ${JSON.stringify(compiled.SkyCurve.bytecode)} as const;
 export const curveDeployedBytecode = ${JSON.stringify(compiled.SkyCurve.deployedBytecode)} as const;
+
+export const hookAbi = ${JSON.stringify(compiled.SkyHook.abi, null, 2)} as const satisfies Abi;
+export const hookBytecode = ${JSON.stringify(compiled.SkyHook.bytecode)} as const;
+export const hookDeployedBytecode = ${JSON.stringify(compiled.SkyHook.deployedBytecode)} as const;
+
+export const poolAbi = ${JSON.stringify(compiled.SkyPool.abi, null, 2)} as const satisfies Abi;
+export const poolBytecode = ${JSON.stringify(compiled.SkyPool.bytecode)} as const;
+export const poolDeployedBytecode = ${JSON.stringify(compiled.SkyPool.deployedBytecode)} as const;
+
+export const rewardsAbi = ${JSON.stringify(compiled.SkyRewards.abi, null, 2)} as const satisfies Abi;
 
 export const factoryAbi = ${JSON.stringify(compiled.SkyFactory.abi, null, 2)} as const satisfies Abi;
 export const factoryBytecode = ${JSON.stringify(compiled.SkyFactory.bytecode)} as const;

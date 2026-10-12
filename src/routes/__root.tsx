@@ -6,8 +6,31 @@ import { ProtocolProvider } from "@/lib/chain/protocol";
 import { WalletProvider } from "@/lib/chain/wallet";
 import appCss from "../styles.css?url";
 
+/** Same public-host guard the share-card injector uses for og:image. */
+function publicHost(): string {
+  const raw = String(import.meta.env.VITE_PUBLIC_HOSTNAME ?? "")
+    .split(",")[0]
+    .trim()
+    .split(":")[0]
+    .toLowerCase();
+  if (!raw || !/^[a-z0-9.-]+$/.test(raw) || !raw.includes(".")) return "";
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(raw)) return "";
+  if (
+    raw === "vercel.app" ||
+    raw.endsWith(".vercel.app") ||
+    raw === "vercel.com" ||
+    raw.endsWith(".vercel.com")
+  ) {
+    return "";
+  }
+  return raw;
+}
+
 export const Route = createRootRoute({
-  head: () => ({
+  head: () => {
+    const host = publicHost();
+    const xBanner = host ? `https://${host}/x-banner.jpg` : "";
+    return {
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
@@ -18,6 +41,7 @@ export const Route = createRootRoute({
           "SkyLaunchpad is a non-custodial token launchpad on Robinhood Chain mainnet. Fixed supply, locked curve liquidity, one signature.",
       },
       { name: "theme-color", content: "#d7ecfb" },
+      ...(xBanner ? [{ property: "x:game:image", content: xBanner }] : []),
     ],
     links: [
       { rel: "icon", type: "image/png", href: "/sky-mark.png" },
@@ -25,7 +49,8 @@ export const Route = createRootRoute({
       { rel: "manifest", href: "/__grok/manifest.webmanifest" },
       { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
     ],
-  }),
+    };
+  },
   component: () => (
     <html lang="en" suppressHydrationWarning>
       <head>

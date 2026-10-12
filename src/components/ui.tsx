@@ -1,11 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { LayoutGrid, LayoutList, Menu, Moon, Search, Sun, X } from "lucide-react";
 import { toast } from "sonner";
 import { ensureRobinhood } from "@/lib/chain/browser";
 import { explainError, shortAddr } from "@/lib/chain/format";
 import { EXPLORER } from "@/lib/chain/params";
 import { useWallet } from "@/lib/chain/wallet";
+import { useProtocol } from "@/lib/chain/protocol";
+import { FeeShares } from "@/components/fee-shares";
 
 export function Button({
   children,
@@ -131,6 +133,8 @@ export function useLaunchSearch(): SearchApi {
 
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const proto = useProtocol();
+  const wallet = useWallet();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -184,8 +188,17 @@ export function Shell({ children }: { children: ReactNode }) {
           <dt className="text-muted">Contract</dt>
           <dd className="font-medium">N/A</dd>
         </div>
-        <div className="mt-2 border-t border-line pt-2 text-xs text-muted">
-          <Link to="/docs" hash="factory" className="hover:text-fg">Factory and treasury</Link>
+        <div className="mt-2 border-t border-line pt-2">
+          <dt className="text-muted">Factory</dt>
+          <dd className="mt-1 break-all font-mono text-[11px] leading-4">
+            {proto.phase === "ready" && proto.factory ? (
+              <a className="hover:text-fg" href={`${EXPLORER}/address/${proto.factory}`} target="_blank" rel="noreferrer">
+                {proto.factory}
+              </a>
+            ) : (
+              <span>Deploy the V4 factory</span>
+            )}
+          </dd>
         </div>
       </dl>
       <label className="flex min-h-11 items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm text-muted">
@@ -213,6 +226,16 @@ export function Shell({ children }: { children: ReactNode }) {
             </Link>
           );
         })}
+        {wallet.address ? (
+          <Link
+            to="/profile/$address"
+            params={{ address: wallet.address }}
+            onClick={() => setOpen(false)}
+            className={`flex min-h-11 items-center rounded-xl px-3 text-sm font-medium ${pathname.startsWith("/profile") ? "bg-inset text-fg" : "text-muted hover:bg-inset hover:text-fg"}`}
+          >
+            Profile
+          </Link>
+        ) : null}
       </nav>
       <div className="mt-auto flex flex-col gap-2">
         <button type="button" onClick={toggleTheme} className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-muted hover:bg-inset hover:text-fg">
@@ -298,6 +321,25 @@ export function ViewToggle({ view, onChange }: { view: "list" | "grid"; onChange
 function WalletButton({ compact = false }: { compact?: boolean }) {
   const wallet = useWallet();
   const [pending, setPending] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setMenu(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(false);
+    };
+    window.addEventListener("mousedown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
   if (!wallet.ready) {
     return <span className="px-3 text-sm text-muted">Wallet…</span>;
   }
@@ -322,22 +364,65 @@ function WalletButton({ compact = false }: { compact?: boolean }) {
       </Button>
     );
   }
+  const address = wallet.address;
   return (
-    <div className={`flex items-center gap-2 ${compact ? "" : "flex-col"}`}>
-      {!wallet.onRobinhood ? (
-        <Button
-          variant="line"
-          className={compact ? "" : "w-full"}
-          onClick={() => {
-            void ensureRobinhood(wallet.ethereum()).catch((error) => toast.error(explainError(error)));
-          }}
-        >
-          Switch chain
-        </Button>
-      ) : null}
-      <button type="button" className={`min-h-11 rounded-full border border-line bg-surface px-3 text-sm ${compact ? "" : "w-full"}`} onClick={wallet.forget} title="Forget this account in the app">
-        {shortAddr(wallet.address)}
+    <div ref={root} className={`relative ${compact ? "" : "w-full"}`}>
+      <button
+        type="button"
+        className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-line bg-surface px-3 text-sm ${compact ? "" : "w-full"}`}
+        aria-expanded={menu}
+        aria-haspopup="menu"
+        onClick={() => setMenu((open) => !open)}
+      >
+        <span className="h-2 w-2 rounded-full bg-up" aria-hidden />
+        {shortAddr(address)}
       </button>
+      {menu ? (
+        <div
+          role="menu"
+          className={`absolute z-50 flex flex-col gap-3 rounded-2xl border border-line bg-bg p-3 shadow-xl ${compact ? "right-0 top-full mt-2 w-72" : "bottom-full left-0 mb-2 w-full"}`}
+        >
+          <div>
+            <p className="text-xs text-muted">Connected</p>
+            <p className="break-all font-mono text-xs">{address}</p>
+          </div>
+          {!wallet.onRobinhood ? (
+            <Button
+              variant="line"
+              className="w-full"
+              onClick={() => {
+                void ensureRobinhood(wallet.ethereum()).catch((error) => toast.error(explainError(error)));
+              }}
+            >
+              Switch to Robinhood Chain
+            </Button>
+          ) : (
+            <p className="text-xs text-up">Robinhood Chain</p>
+          )}
+          <Link
+            to="/profile/$address"
+            params={{ address }}
+            className="inline-flex min-h-11 items-center rounded-xl px-2 text-sm font-medium hover:bg-inset"
+            onClick={() => setMenu(false)}
+          >
+            Profile
+          </Link>
+          <div className="border-t border-line pt-3">
+            <p className="mb-2 text-xs font-medium text-muted">Tax rewards</p>
+            <FeeShares user={address} canClaim dense />
+          </div>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-line text-sm"
+            onClick={() => {
+              setMenu(false);
+              void wallet.disconnect();
+            }}
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -16,9 +16,13 @@ export const Route = createFileRoute("/contracts")({ component: ContractsPage })
 
 const FILES = [
   ["SkyParams.sol", "Economics. One library, imported by the others."],
-  ["SkyFactory.sol", "Deploys a token and a curve clone. Pays the launch fee to the treasury."],
-  ["SkyCurve.sol", "Constant-product market. No withdraw function."],
-  ["SkyToken.sol", "Fixed-supply ERC-20. Minted once, to the curve."],
+  ["SkyFactory.sol", "Deploys the token, the curve, the rewards splitter, and the Uniswap hook."],
+  ["SkyCurve.sol", "Bonding curve until 4.2 of the pair. No withdraw function."],
+  ["SkyToken.sol", "Fixed-supply ERC-20. Minted once, to the curve. Checkpoints holder fees."],
+  ["SkyRewards.sol", "Splits creator fees across holders when a launch picks Holders."],
+  ["SkyHook.sol", "Locks the Uniswap v4 position and takes the same fee after graduation."],
+  ["SkyPool.sol", "Seeds the full-range position and routes later trades."],
+  ["SkyLocker.sol", "Holds the leftover curve tokens. They cannot be withdrawn."],
 ] as const;
 
 function ContractsPage() {

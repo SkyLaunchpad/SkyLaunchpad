@@ -42,7 +42,8 @@ function assertCalls(input: unknown): { calls: RpcCall[] } {
     }
     if (!Array.isArray(params) || params.length > 4) throw new Error("Bad RPC params.");
     const encoded = JSON.stringify(params);
-    if (encoded.length > 80_000) throw new Error("RPC params are too large.");
+    // A V4 factory deploy is ~90k characters of init code. Stay under a 128KB RPC body.
+    if (encoded.length > 120_000) throw new Error("RPC params are too large.");
     clean.push({ method, params });
   }
   return { calls: clean };

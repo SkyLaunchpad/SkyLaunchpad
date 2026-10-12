@@ -964,6 +964,10 @@ function checksumAddress(address_, chainId) {
 	checksumAddressCache.set(`${address_}.${chainId}`, result);
 	return result;
 }
+function getAddress(address, chainId) {
+	if (!isAddress(address, { strict: false })) throw new InvalidAddressError({ address });
+	return checksumAddress(address, chainId);
+}
 //#endregion
 //#region node_modules/viem/_esm/utils/address/isAddress.js
 var addressRegex = /^0x[a-fA-F0-9]{40}$/;
@@ -984,6 +988,21 @@ function isAddress(address, options) {
 }
 //#endregion
 //#region node_modules/viem/_esm/utils/data/concat.js
+function concat(values) {
+	if (typeof values[0] === "string") return concatHex(values);
+	return concatBytes(values);
+}
+function concatBytes(values) {
+	let length = 0;
+	for (const arr of values) length += arr.length;
+	const result = new Uint8Array(length);
+	let offset = 0;
+	for (const arr of values) {
+		result.set(arr, offset);
+		offset += arr.length;
+	}
+	return result;
+}
 function concatHex(values) {
 	return `0x${values.reduce((acc, x) => acc + x.replace("0x", ""), "")}`;
 }
@@ -1836,6 +1855,72 @@ function hasDynamicChild(param) {
 	return false;
 }
 //#endregion
+//#region node_modules/viem/_esm/utils/encoding/toRlp.js
+function toRlp(bytes, to = "hex") {
+	const encodable = getEncodable(bytes);
+	const cursor = createCursor(new Uint8Array(encodable.length));
+	encodable.encode(cursor);
+	if (to === "hex") return bytesToHex(cursor.bytes);
+	return cursor.bytes;
+}
+function getEncodable(bytes) {
+	if (Array.isArray(bytes)) return getEncodableList(bytes.map((x) => getEncodable(x)));
+	return getEncodableBytes(bytes);
+}
+function getEncodableList(list) {
+	const bodyLength = list.reduce((acc, x) => acc + x.length, 0);
+	const sizeOfBodyLength = getSizeOfLength(bodyLength);
+	return {
+		length: (() => {
+			if (bodyLength <= 55) return 1 + bodyLength;
+			return 1 + sizeOfBodyLength + bodyLength;
+		})(),
+		encode(cursor) {
+			if (bodyLength <= 55) cursor.pushByte(192 + bodyLength);
+			else {
+				cursor.pushByte(247 + sizeOfBodyLength);
+				if (sizeOfBodyLength === 1) cursor.pushUint8(bodyLength);
+				else if (sizeOfBodyLength === 2) cursor.pushUint16(bodyLength);
+				else if (sizeOfBodyLength === 3) cursor.pushUint24(bodyLength);
+				else cursor.pushUint32(bodyLength);
+			}
+			for (const { encode } of list) encode(cursor);
+		}
+	};
+}
+function getEncodableBytes(bytesOrHex) {
+	const bytes = typeof bytesOrHex === "string" ? hexToBytes(bytesOrHex) : bytesOrHex;
+	const sizeOfBytesLength = getSizeOfLength(bytes.length);
+	return {
+		length: (() => {
+			if (bytes.length === 1 && bytes[0] < 128) return 1;
+			if (bytes.length <= 55) return 1 + bytes.length;
+			return 1 + sizeOfBytesLength + bytes.length;
+		})(),
+		encode(cursor) {
+			if (bytes.length === 1 && bytes[0] < 128) cursor.pushBytes(bytes);
+			else if (bytes.length <= 55) {
+				cursor.pushByte(128 + bytes.length);
+				cursor.pushBytes(bytes);
+			} else {
+				cursor.pushByte(183 + sizeOfBytesLength);
+				if (sizeOfBytesLength === 1) cursor.pushUint8(bytes.length);
+				else if (sizeOfBytesLength === 2) cursor.pushUint16(bytes.length);
+				else if (sizeOfBytesLength === 3) cursor.pushUint24(bytes.length);
+				else cursor.pushUint32(bytes.length);
+				cursor.pushBytes(bytes);
+			}
+		}
+	};
+}
+function getSizeOfLength(length) {
+	if (length < 256) return 1;
+	if (length < 2 ** 16) return 2;
+	if (length < 2 ** 24) return 3;
+	if (length < 2 ** 32) return 4;
+	throw new BaseError("Length is too large.");
+}
+//#endregion
 //#region node_modules/viem/_esm/utils/abi/decodeEventLog.js
 var docsPath$2 = "/docs/contract/decodeEventLog";
 function decodeEventLog(parameters) {
@@ -1939,4 +2024,44 @@ function encodeDeployData(parameters) {
 	return concatHex([bytecode, encodeAbiParameters(description.inputs, args)]);
 }
 //#endregion
-export { toHex as a, encodeFunctionData as i, decodeFunctionResult as n, decodeEventLog as r, encodeDeployData as t };
+//#region node_modules/viem/_esm/utils/data/isBytes.js
+function isBytes(value) {
+	if (!value) return false;
+	if (typeof value !== "object") return false;
+	if (!("BYTES_PER_ELEMENT" in value)) return false;
+	return value.BYTES_PER_ELEMENT === 1 && value.constructor.name === "Uint8Array";
+}
+//#endregion
+//#region node_modules/viem/_esm/utils/address/getContractAddress.js
+function getContractAddress(opts) {
+	if (opts.opcode === "CREATE2") return getCreate2Address(opts);
+	return getCreateAddress(opts);
+}
+function getCreateAddress(opts) {
+	const from = toBytes(getAddress(opts.from));
+	let nonce = toBytes(opts.nonce);
+	if (nonce[0] === 0) nonce = new Uint8Array([]);
+	return getAddress(`0x${keccak256(toRlp([from, nonce], "bytes")).slice(26)}`);
+}
+function getCreate2Address(opts) {
+	const from = toBytes(getAddress(opts.from));
+	const salt = pad(isBytes(opts.salt) ? opts.salt : toBytes(opts.salt), { size: 32 });
+	const bytecodeHash = (() => {
+		if ("bytecodeHash" in opts) {
+			if (isBytes(opts.bytecodeHash)) return opts.bytecodeHash;
+			return toBytes(opts.bytecodeHash);
+		}
+		return keccak256(opts.bytecode, "bytes");
+	})();
+	return getAddress(slice(keccak256(concat([
+		toBytes("0xff"),
+		from,
+		salt,
+		bytecodeHash
+	])), 12));
+}
+//#endregion
+//#region node_modules/viem/_esm/constants/address.js
+var zeroAddress = "0x0000000000000000000000000000000000000000";
+//#endregion
+export { decodeFunctionResult as a, encodeAbiParameters as c, keccak256 as d, toHex as f, encodeDeployData as i, concat as l, getContractAddress as n, decodeEventLog as o, getCreate2Address as r, encodeFunctionData as s, zeroAddress as t, isAddress as u };

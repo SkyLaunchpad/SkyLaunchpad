@@ -1,1 +1,0 @@
-import{Dt as e}from"./wallet-C21-Pp16.js";import{s as t}from"./ui-DHpHlec6.js";import{t as n}from"./launches-board-BkBhU4dY.js";var r=e(),i=function(){return(0,r.jsx)(t,{children:(0,r.jsx)(n,{})})};export{i as component};

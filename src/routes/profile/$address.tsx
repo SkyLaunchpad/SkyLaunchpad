@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { FeeShares } from "@/components/fee-shares";
 import { ExplorerLink, Ident, Meter, Notice, Shell } from "@/components/ui";
 import { ago, bpsLabel, formatEth, isAddress, shortAddr } from "@/lib/chain/format";
 import { useProtocol } from "@/lib/chain/protocol";
+import { useWallet } from "@/lib/chain/wallet";
 
 export const Route = createFileRoute("/profile/$address")({
   component: ProfilePage,
@@ -16,14 +18,16 @@ export const Route = createFileRoute("/profile/$address")({
 function ProfilePage() {
   const { address } = Route.useParams();
   const proto = useProtocol();
+  const wallet = useWallet();
   const mine = proto.launches.filter((row) => row.creator.toLowerCase() === address.toLowerCase());
   const locked = mine.reduce((sum, row) => sum + row.realEth, 0n);
+  const self = wallet.address?.toLowerCase() === address.toLowerCase();
 
   return (
     <Shell>
       <div className="flex flex-col gap-6">
         <header>
-          <p className="text-sm text-primary">Creator</p>
+          <p className="text-sm text-primary">{self ? "Your profile" : "Creator"}</p>
           <h1 className="break-all font-serif text-3xl sm:text-4xl">{shortAddr(address)}</h1>
           <p className="mt-2 text-sm text-muted">
             <ExplorerLink kind="address" value={address}>
@@ -31,6 +35,8 @@ function ProfilePage() {
             </ExplorerLink>
           </p>
         </header>
+
+        <FeeShares user={address} canClaim={self} />
 
         {proto.phase !== "ready" ? (
           <Notice>
